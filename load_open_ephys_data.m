@@ -53,6 +53,25 @@ function [data, timestamps, info] = load_open_ephys_data(filename)
 
 filetype = filename(max(strfind(filename,'.'))+1:end); % parse filetype
 
+% HRK start
+[pathstr, fname, f_ext] = fileparts(filename);
+if ~exist([filename],'file') 
+    % search for file with postfix. This happens when I click play multiple
+    % times.
+    for iPostfix = 1:10
+        new_filename = [pathstr filesep fname '_' num2str(iPostfix) f_ext];
+        if exist(new_filename, 'file')
+            break;
+        end
+    end
+    if iPostfix == 10
+        error('Cannot find file %s', filename);
+    end
+    fprintf(1, 'File does not exist. use %s instead\n', new_filename);
+    filename = new_filename;
+end
+% HRK end
+
 fid = fopen(filename);
 filesize = getfilesize(fid);
 
@@ -64,11 +83,13 @@ RECORD_MARKER = [0 1 2 3 4 5 6 7 8 255]';
 RECORD_MARKER_V0 = [0 0 0 0 0 0 0 0 0 255]';
 
 % constants for pre-allocating matrices:
-MAX_NUMBER_OF_SPIKES = 1e6;
+MAX_NUMBER_OF_SPIKES = 2e6; % HRK 1e6 -> 2e6
 MAX_NUMBER_OF_RECORDS = 1e6;
 MAX_NUMBER_OF_CONTINUOUS_SAMPLES = 1e8;
 MAX_NUMBER_OF_EVENTS = 1e6;
 SPIKE_PREALLOC_INTERVAL = 1e6;
+
+
 
 %-----------------------------------------------------------------------
 %------------------------- EVENT DATA ----------------------------------
@@ -296,7 +317,7 @@ elseif strcmp(filetype, 'continuous')
     
 elseif strcmp(filetype, 'spikes')
     
-    disp(['Loading spikes file...']);
+    disp(['Loading spikes file...' filename]);
     
     index = 0;
     
@@ -336,10 +357,18 @@ elseif strcmp(filetype, 'spikes')
         
         current_spike = current_spike + 1;
         
+        %HRK start
+        if current_spike == MAX_NUMBER_OF_SPIKES
+           warning('current_spike exceeds MAX_NUMBER_OF_SPIKES. From now on loading will be very slow. Increase it to avoid it');
+           keyboard
+        end
+        % HRK end
+        
         current_percent= round(100* ((ftell(fid) + 512) / filesize));
         if current_percent >= last_percent+10
             last_percent=current_percent;
-            fprintf(' %d%%',current_percent);
+%             fprintf(' %d%%',current_percent);
+            fprintf(' %d(%d%%)', current_spike, current_percent); %HRK 
         end;
         
         idx = 0;
@@ -451,6 +480,14 @@ else
 end
 
 fclose(fid); % close the file
+
+% HRK modification. timestamp measures time from start playing. I want to
+% set timestamp 0 to be start of recording. so use messages.event to
+% subtract start. I can double check the start timestamp by opening any
+% % continuous channel.
+% [tmp_pathstr] = fileparts(filename);
+% dt = textscan(fullfile(tmp_pathstr, 'messages.events') );
+% dt(1,1)
 
 if (isfield(info.header,'sampleRate'))
     if ~ischar(info.header.sampleRate)
